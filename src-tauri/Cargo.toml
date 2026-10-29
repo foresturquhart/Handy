@@ -52,6 +52,8 @@ hound = "3.5.1"
 log = "0.4.25"
 env_filter = "0.1.0"
 tokio = "1.43.0"
+axum = "0.8"
+subtle = "2.6"
 earshot = "1.2.2"
 enigo = "0.6.1"
 # Feedback sounds. No `recording`: microphone capture is handy-recorder's.
@@ -195,6 +197,7 @@ tao = { git = "https://github.com/cjpais/tao", rev = "c3bee28c1d446d95f08c95c3b6
 tao-macros = { git = "https://github.com/cjpais/tao", rev = "c3bee28c1d446d95f08c95c3b6f8d4bde052b876" }
 
 [dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
 tempfile = "3"
 # Test-only tokio features for the local socket servers exercising the
 # resumable HTTP downloader; normal builds keep the leaner feature set.

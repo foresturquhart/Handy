@@ -356,7 +356,8 @@ impl ChunkControl for Control<'_> {
             if self.cancelled.load(Ordering::Acquire) {
                 return false;
             }
-            if !crate::tray::dictation_in_progress(&self.manager.app) {
+            let tm = self.manager.app.state::<Arc<TranscriptionManager>>();
+            if !crate::tray::dictation_in_progress(&self.manager.app) && !tm.api_busy() {
                 return true;
             }
             thread::sleep(DICTATION_POLL);

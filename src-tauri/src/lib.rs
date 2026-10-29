@@ -1,4 +1,5 @@
 mod actions;
+mod api;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod apple_intelligence;
 mod audio_feedback;
@@ -1049,6 +1050,9 @@ pub fn run(cli_args: CliArgs) {
             app.manage(TranscriptionCoordinator::new(app_handle.clone()));
 
             initialize_core_logic(&app_handle);
+            if let Some(address) = cli_args.api_listen {
+                api::start(&app_handle, address)?;
+            }
 
             // Secure Input monitor (macOS): detects stuck secure input that
             // silently blocks keyed shortcuts, warns the user, and activates
@@ -1140,6 +1144,11 @@ pub fn run(cli_args: CliArgs) {
     // `app` is only used by the macOS arm.
     #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     app.run(|app, event| match &event {
+        tauri::RunEvent::Exit => {
+            if let Some(server) = app.try_state::<api::ApiServer>() {
+                server.stop();
+            }
+        }
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Reopen { .. } => {
             // Fired when the already-running bundle is launched again from

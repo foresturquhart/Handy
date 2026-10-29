@@ -273,6 +273,10 @@ pub struct TranscriptionManager {
     /// True while a background job is queued or running. It holds the model,
     /// so one transcript is never written by two models.
     job_active: Arc<AtomicBool>,
+    /// API serving pins the shared engine without changing persisted idle settings.
+    api_keep_warm: Arc<AtomicBool>,
+    /// A remote request owns the coordinator's processing slot.
+    api_busy: Arc<AtomicBool>,
     /// Handy's spoken-language detector, loaded in this process on first
     /// use and unloaded with the model.
     language_detector: Arc<LanguageDetector>,
@@ -296,6 +300,8 @@ impl TranscriptionManager {
             next_stream_worker_id: Arc::new(AtomicU64::new(1)),
             active_stream_worker: Arc::new(AtomicU64::new(0)),
             job_active: Arc::new(AtomicBool::new(false)),
+            api_keep_warm: Arc::new(AtomicBool::new(false)),
+            api_busy: Arc::new(AtomicBool::new(false)),
             language_detector: Arc::new(LanguageDetector::default()),
         };
 
@@ -329,7 +335,10 @@ impl TranscriptionManager {
                     let is_recording = app_handle_cloned
                         .try_state::<Arc<AudioRecordingManager>>()
                         .is_some_and(|a| a.is_recording());
-                    if is_recording || manager_cloned.job_active() {
+                    if is_recording
+                        || manager_cloned.job_active()
+                        || manager_cloned.api_keeps_warm()
+                    {
                         manager_cloned.touch_activity();
                         continue;
                     }
@@ -502,7 +511,7 @@ impl TranscriptionManager {
     pub fn maybe_unload_immediately(&self, context: &str) {
         // A file job keeps the model for its remaining chunks; it unloads
         // the model itself when it ends.
-        if self.job_active() {
+        if self.job_active() || self.api_keeps_warm() {
             return;
         }
         let settings = get_settings(&self.app_handle);
@@ -734,11 +743,29 @@ impl TranscriptionManager {
         self.job_active.store(active, Ordering::Release);
     }
 
+    pub fn set_api_keep_warm(&self, enabled: bool) {
+        self.api_keep_warm.store(enabled, Ordering::Release);
+    }
+
+    pub fn api_keeps_warm(&self) -> bool {
+        self.api_keep_warm.load(Ordering::Acquire)
+    }
+
+    pub fn set_api_busy(&self, active: bool) {
+        self.api_busy.store(active, Ordering::Release);
+    }
+
+    pub fn api_busy(&self) -> bool {
+        self.api_busy.load(Ordering::Acquire)
+    }
+
     /// Refuses a model switch, unload or delete while a file job holds the
     /// model.
     pub fn ensure_model_unlocked(&self) -> std::result::Result<(), String> {
-        if self.job_active() {
-            return Err("The model can't change while a file is transcribing".to_string());
+        if self.job_active() || self.api_busy() {
+            return Err(
+                "The model can't change while a file or API request is transcribing".to_string(),
+            );
         }
         Ok(())
     }

@@ -1,5 +1,6 @@
 use crate::actions::ACTION_MAP;
 use crate::managers::audio::AudioRecordingManager;
+use crate::managers::transcription::TranscriptionManager;
 use crate::settings::ShortcutActivation;
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
@@ -201,6 +202,7 @@ enum Command {
     Input(InputEvent),
     Cancel { recording_was_active: bool },
     ProcessingFinished,
+    AcquireApi(Sender<bool>),
 }
 
 /// Decide whether a key-up should be deferred (so auto-repeat can cancel it)
@@ -557,6 +559,16 @@ impl CoordinatorState {
             hotkey_string,
         }
     }
+
+    /// A remote transcription uses the same busy/remembered-key semantics as
+    /// desktop processing, but never records or pastes on this computer.
+    fn try_begin_api(&mut self) -> bool {
+        if self.stage != Stage::Idle {
+            return false;
+        }
+        self.stage = Stage::Processing;
+        true
+    }
 }
 
 /// Serialises all transcription lifecycle events through a single thread
@@ -626,6 +638,20 @@ impl TranscriptionCoordinator {
                                 run_effect(&app, &mut state, effect);
                             }
                         }
+                        Command::AcquireApi(reply) => {
+                            let tm = app.state::<Arc<TranscriptionManager>>();
+                            let recording = app
+                                .try_state::<Arc<AudioRecordingManager>>()
+                                .is_some_and(|audio| audio.is_recording());
+                            let acquired = !tm.job_active() && !recording && state.try_begin_api();
+                            if acquired {
+                                tm.set_api_busy(true);
+                            }
+                            if reply.send(acquired).is_err() && acquired {
+                                tm.set_api_busy(false);
+                                state.stage = Stage::Idle;
+                            }
+                        }
                     }
                     if !was_locked && state.is_recording_locked() {
                         emit_recording_phase(&app, RecordingPhase::Locked);
@@ -639,6 +665,12 @@ impl TranscriptionCoordinator {
         });
 
         Self { tx }
+    }
+
+    /// Called on an API blocking worker, never the UI/event-loop thread.
+    pub fn try_acquire_api(&self) -> bool {
+        let (reply, result) = mpsc::channel();
+        self.tx.send(Command::AcquireApi(reply)).is_ok() && result.recv().unwrap_or(false)
     }
 
     /// Send a keyboard input event for a transcribe binding. `hold_threshold`
@@ -768,6 +800,24 @@ fn stop(app: &AppHandle, binding_id: &str, hotkey_string: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn api_request_holds_processing_slot_until_finished() {
+        let mut state = CoordinatorState::new();
+        assert!(state.try_begin_api());
+        assert!(!state.try_begin_api());
+        assert_eq!(state.stage, Stage::Processing);
+        assert!(state.on_processing_finished().is_none());
+        assert!(state.try_begin_api());
+    }
+
+    #[test]
+    fn api_request_cannot_interrupt_a_recording() {
+        let mut state = CoordinatorState::new();
+        state.begin_recording("transcribe".into(), "test".into(), Instant::now(), false);
+        assert!(!state.try_begin_api());
+        assert!(matches!(state.stage, Stage::Recording(_)));
+    }
 
     #[test]
     fn push_to_talk_release_while_recording_defers_release() {

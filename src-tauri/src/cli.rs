@@ -1,9 +1,15 @@
 use clap::Parser;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug, Clone, Default)]
 #[command(name = "handy", about = "Handy - Speech to Text")]
 pub struct CliArgs {
+    /// Serve WAV transcription requests using this app's warm model.
+    /// Non-loopback addresses require HANDY_API_TOKEN in the environment.
+    #[arg(long, value_name = "IP:PORT")]
+    pub api_listen: Option<SocketAddr>,
+
     /// Start with the main window hidden
     #[arg(long)]
     pub start_hidden: bool,
