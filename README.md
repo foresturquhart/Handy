@@ -1,5 +1,7 @@
 # Handy
 
+This fork adds an opt-in, authenticated HTTP transcription API for [Dictator](https://github.com/foresturquhart/dictator). It shares the running app's model and keeps it warm between requests. See [API setup and behaviour](DICTATOR_API.md). The original Handy documentation follows below.
+
 [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com/invite/WVBeWsNXK4)
 
 **A free, open source, and extensible speech-to-text application that works completely offline.**
